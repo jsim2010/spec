@@ -3,6 +3,8 @@ name = "spec"
 version = "0.1.0"
 authors = ["Justin Simerly <justinsimerly1992@gmail.com>"]
 edition = "2018"
+description = "A specification manager within source code."
+licence = "MIT"
 
 [lib]
 proc-macro = true
