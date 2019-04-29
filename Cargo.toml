@@ -5,11 +5,107 @@ authors = ["Justin Simerly <justinsimerly1992@gmail.com>"]
 edition = "2018"
 description = "A specification manager within source code."
 license = "MIT"
+repository = "https://github.com/jsim2010/spec"
+readme = "README.md"
+keywords = ["specifications"]
+categories = ["development tools"]
 
 [lib]
+path = "src/lib.rs"
 proc-macro = true
 
 [dependencies]
 proc-macro2 = "0.4.27"
 quote = "0.6.12"
 syn = { version = "0.15.30", features = ["full"] }
+
+[package.metadata.commands]
+preeval = """
+(cargo-readme -V || cargo install cargo-readme) \
+&& (cargo-clippy -V || rustup component add clippy) \
+&& (cargo-fmt --version || rustup component add rustfmt) \
+&& cargo-readme readme > r\
+"""
+# Evaluates source code for issues.
+
+# Clippy command forbids all rustc and clippy lints except the following:
+# -D unused-qualifications: #[derive(Default)] adds an allow.
+# -D unreachable-code - allowed by parse functions.
+# -A missing-docs: Unknown errors found due to missing documentation for a module and a static; this may be due to being a proc-macro?
+# -A clippy::implicit-return: This goes against rust convention and would require return calls in inconvenient places (e.g. closures).
+# -A clippy::wildcard-enum-match-arm - Tests should find if adding a variant through a dependency update creates undesired behavior.
+eval = """
+set CLIPPY_DISABLE_DOCS_LINKS=1\
+&& cargo-clippy clippy --verbose -- \
+    -F warnings \
+    -F future-incompatible \
+    -F macro-use-extern-crate \
+    -F missing-copy-implementations \
+    -F missing-debug-implementations \
+    -F single-use-lifetimes \
+    -F trivial-casts \
+    -F trivial-numeric-casts \
+    -F unreachable-pub \
+    -F unused-imports \
+    -F unused-import-braces \
+    -F unused-lifetimes \
+    -F unused-results \
+    -F unused-variables \
+    -F unused-assignments \
+    -F dead-code \
+    -F unused-mut \
+    -F unreachable-patterns \
+    -F unused-must-use \
+    -F unused-unsafe \
+    -F path-statements \
+    -F unused-macros \
+    -F unused-allocation \
+    -F unused-doc-comments \
+    -F unused-extern-crates \
+    -F unused-features \
+    -F unused-labels \
+    -F unused-parens \
+    -F clippy::all \
+    -F clippy::pedantic \
+    -F clippy::nursery \
+    -F clippy::cargo-common-metadata \
+    -F clippy::wildcard-dependencies \
+    -F clippy::clone-on-ref-ptr \
+    -F clippy::dbg-macro \
+    -F clippy::decimal-literal-representation \
+    -F clippy::else-if-without-else \
+    -F clippy::float-arithmetic \
+    -F clippy::float-cmp-const \
+    -F clippy::get-unwrap \
+    -F clippy::indexing-slicing \
+    -F clippy::integer-arithmetic \
+    -F clippy::mem-forget \
+    -F clippy::missing-docs-in-private-items \
+    -F clippy::missing-inline-in-public-items \
+    -F clippy::multiple-inherent-impl \
+    -F clippy::option-unwrap-used \
+    -F clippy::print-stdout \
+    -F clippy::result-unwrap-used \
+    -F clippy::shadow-reuse \
+    -F clippy::shadow-same \
+    -F clippy::string-add \
+    -F clippy::unimplemented \
+    -F clippy::use-debug \
+    -F clippy::wrong-pub-self-convention \
+    -F clippy::multiple-crate-versions \
+    -D rust-2018-idioms \
+    -D unused-attributes \
+    -D unused-qualifications \
+    -D unreachable-code \
+    -A missing-docs \
+    -A clippy::implicit-return \
+    -A clippy::wildcard-enum-match-arm \
+&& cargo-fmt -- --check \
+&& fc r README.md \
+&& cargo test --verbose --all-features\
+"""
+posteval = "if exist r rm r"
+
+prefix = "cargo-readme -V || cargo install cargo-readme"
+# Fixes all issues that can be done automatically.
+fix = "cargo-fmt && cargo-readme readme > README.md"

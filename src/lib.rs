@@ -1,55 +1,92 @@
+//! Provides a `spec` attribute that defines a specification.
 extern crate proc_macro;
 
 use proc_macro::TokenStream;
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{quote, ToTokens};
-use syn::{braced, parse_macro_input, Ident, Item, Lit, parse_macro_input::ParseMacroInput, Stmt, Type, Block, Token, Result, parse::ParseStream};
+use syn::{
+    braced, parse::ParseStream, parse_macro_input, parse_macro_input::ParseMacroInput, Block,
+    Ident, Item, Lit, Meta, Result, Stmt, Token, Type,
+};
 
+/// Defines a specification statement.
+enum SpecStatement {
+    /// A statement using "shall".
+    ///
+    /// "`ident` shall {}"
+    Shall(String),
+    /// A conditional statement.
+    ///
+    /// "If `ident`, {}"
+    Cond(String),
+}
+
+impl SpecStatement {
+    /// Returns the full statement.
+    fn stmt(&self, ident: &str) -> String {
+        match self {
+            SpecStatement::Shall(s) => format!("`{}` shall {}", ident, s),
+            SpecStatement::Cond(s) => format!("If `{}` {}", ident, s),
+        }
+    }
+}
+
+impl Default for SpecStatement {
+    fn default() -> Self {
+        SpecStatement::Shall(String::default())
+    }
+}
+
+/// Defines a specification.
 #[derive(Default)]
 struct Spec {
+    /// The name of the specification
     name: String,
-    shall: String,
+    /// The statement of the specification.
+    stmt: SpecStatement,
+    /// The `Stmt`s that certify the specification has been met.
     cert: Vec<Stmt>,
 }
 
 impl ParseMacroInput for Spec {
-    fn parse(input: ParseStream) -> Result<Self> {
+    fn parse(input: ParseStream<'_>) -> Result<Self> {
         let ident = input.parse::<Ident>()?;
-        let mut spec = Spec::default();
+        let mut spec = Self::default();
 
         if ident.to_string().as_str() == "name" && input.parse::<Token![=]>().is_ok() {
             spec.name = match input.parse::<Lit>()? {
-                Lit::Str(lit_str) => {
-                    Ok(lit_str.value())
-                }
+                Lit::Str(lit_str) => Ok(lit_str.value()),
                 _ => Err(input.error("Error parsing spec name")),
             }?;
 
-            input.parse::<Token![,]>()?;
+            let _ = input.parse::<Token![,]>()?;
             let ident = input.parse::<Ident>()?;
 
             if ident.to_string().as_str() == "shall" && input.parse::<Token![=]>().is_ok() {
-                spec.shall = match input.parse::<Lit>()? {
-                    Lit::Str(lit_str) => {
-                        Ok(lit_str.value())
-                    }
-                    _ => Err(input.error("Error parsing spec shall statement value"))
+                spec.stmt = match input.parse::<Lit>()? {
+                    Lit::Str(lit_str) => Ok(SpecStatement::Shall(lit_str.value())),
+                    _ => Err(input.error("Error parsing spec shall statement value")),
                 }?;
-
-                if !input.is_empty() {
-                    input.parse::<Token![,]>()?;
-                    let ident = input.parse::<Ident>()?;
-
-                    if ident.to_string().as_str() == "cert" {
-                        let content;
-                        braced!(content in input);
-                        spec.cert = content.call(Block::parse_within)?;
-                    } else {
-                        return Err(input.error("Expected spec cert"));
-                    }
-                }
+            } else if ident.to_string().as_str() == "cond" && input.parse::<Token![=]>().is_ok() {
+                spec.stmt = match input.parse::<Lit>()? {
+                    Lit::Str(lit_str) => Ok(SpecStatement::Cond(lit_str.value())),
+                    _ => Err(input.error("Error parsing spec cond statement value")),
+                }?;
             } else {
-                return Err(input.error("Expected spec shall"));
+                return Err(input.error("Expected spec shall or cond"));
+            }
+
+            if !input.is_empty() {
+                let _ = input.parse::<Token![,]>()?;
+                let ident = input.parse::<Ident>()?;
+
+                if ident.to_string().as_str() == "cert" {
+                    let content;
+                    braced!(content in input);
+                    spec.cert = content.call(Block::parse_within)?;
+                } else {
+                    return Err(input.error("Expected spec cert"));
+                }
             }
         } else {
             return Err(input.error("Expected spec name"));
@@ -59,8 +96,11 @@ impl ParseMacroInput for Spec {
     }
 }
 
+/// Adds a specification to the item.
 #[proc_macro_attribute]
+#[inline]
 pub fn spec(args: TokenStream, item: TokenStream) -> TokenStream {
+    let spec = parse_macro_input!(args as Spec);
     let item = parse_macro_input!(item as Item);
     let mut item_attrs = Vec::new();
     let mut after_attrs = quote! {};
@@ -108,12 +148,49 @@ pub fn spec(args: TokenStream, item: TokenStream) -> TokenStream {
                 }
             };
         }
+        Item::Fn(item_fn) => {
+            let vis = item_fn.vis;
+            let constness = item_fn.constness;
+            let unsafety = item_fn.unsafety;
+            let asyncness = item_fn.asyncness;
+            let abi = item_fn.abi;
+            let generics = item_fn.decl.generics;
+            let inputs = item_fn.decl.inputs;
+            let variadic = item_fn.decl.variadic;
+            let output = item_fn.decl.output;
+            let block = item_fn.block;
+
+            item_ident = item_fn.ident;
+            item_attrs = item_fn.attrs;
+            after_attrs = quote! {
+                #vis #constness #unsafety #asyncness #abi fn #item_ident #generics(#inputs #variadic) #output {
+                    #block
+                }
+            };
+        }
         _ => {}
     }
 
-    let spec = parse_macro_input!(args as Spec);
+    let mut title_doc = "# Specifications";
+
+    for attr in &item_attrs {
+        if let Meta::NameValue(name_value) = attr
+            .parse_meta()
+            .expect("Checking attributes for previous specifications.")
+        {
+            if name_value.ident.to_string().as_str() == "doc" {
+                if let Lit::Str(lit_str) = name_value.lit {
+                    if lit_str.value() == title_doc {
+                        title_doc = "";
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
     let name_doc = format!("## SPEC-{}-{}", item_ident, spec.name);
-    let stmt_doc = format!("> `{}` shall {}.\n", item_ident, spec.shall);
+    let stmt_doc = format!("> {}.\n", spec.stmt.stmt(&item_ident.to_string()));
     let cert_doc = if spec.cert.is_empty() {
         String::default()
     } else {
@@ -130,7 +207,7 @@ pub fn spec(args: TokenStream, item: TokenStream) -> TokenStream {
 
     let output = quote! {
         #(#item_attrs)*
-        #[doc = "# Specifications"]
+        #[doc = #title_doc]
         #[doc = #name_doc]
         #[doc = #stmt_doc]
         #[doc = #cert_doc]
