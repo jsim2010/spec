@@ -1,6 +1,7 @@
 //! Provides a `spec` attribute that defines a specification.
 extern crate proc_macro;
 
+use ::rustfmt::{config::Config, Input};
 use proc_macro::TokenStream;
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{quote, ToTokens};
@@ -174,10 +175,7 @@ pub fn spec(args: TokenStream, item: TokenStream) -> TokenStream {
     let mut title_doc = "# Specifications";
 
     for attr in &item_attrs {
-        if let Meta::NameValue(name_value) = attr
-            .parse_meta()
-            .expect("Checking attributes for previous specifications.")
-        {
+        if let Ok(Meta::NameValue(name_value)) = attr.parse_meta() {
             if name_value.ident.to_string().as_str() == "doc" {
                 if let Lit::Str(lit_str) = name_value.lit {
                     if lit_str.value() == title_doc {
@@ -191,18 +189,36 @@ pub fn spec(args: TokenStream, item: TokenStream) -> TokenStream {
 
     let name_doc = format!("## SPEC-{}-{}", item_ident, spec.name);
     let stmt_doc = format!("> {}.\n", spec.stmt.stmt(&item_ident.to_string()));
-    let cert_doc = if spec.cert.is_empty() {
-        String::default()
-    } else {
-        let mut d = String::from("```\n");
+    let mut cert_doc = String::default();
+
+    if !spec.cert.is_empty() {
+        let mut example = String::from("fn main() {\n");
+        let fmt_config = Config::default();
 
         for stmt in spec.cert {
-            d.push_str(&stmt.into_token_stream().to_string());
-            d.push('\n');
+            example.push_str(&stmt.into_token_stream().to_string());
         }
 
-        d.push_str("\n```");
-        d
+        example.push_str("}");
+
+        if let Ok(output) =
+            rustfmt::format_input::<std::io::Stdout>(Input::Text(example), &fmt_config, None)
+        {
+            cert_doc.push_str("```\n");
+            for record in output.1 {
+                let fmt_example = record.1.to_string();
+                let length = fmt_example.lines().count().saturating_sub(2);
+
+                for line in fmt_example.lines().skip(1).take(length) {
+                    if let Some(trimmed_line) = line.get(4..) {
+                        cert_doc.push_str(trimmed_line);
+                        cert_doc.push('\n');
+                    }
+                }
+            }
+
+            cert_doc.push_str("\n```");
+        }
     };
 
     let output = quote! {

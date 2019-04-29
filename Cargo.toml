@@ -17,6 +17,7 @@ proc-macro = true
 [dependencies]
 proc-macro2 = "0.4.27"
 quote = "0.6.12"
+rustfmt = "0.10.0"
 syn = { version = "0.15.30", features = ["full"] }
 
 [package.metadata.commands]
@@ -34,6 +35,7 @@ preeval = """
 # -A missing-docs: Unknown errors found due to missing documentation for a module and a static; this may be due to being a proc-macro?
 # -A clippy::implicit-return: This goes against rust convention and would require return calls in inconvenient places (e.g. closures).
 # -A clippy::wildcard-enum-match-arm - Tests should find if adding a variant through a dependency update creates undesired behavior.
+# -A clippy::multiple-crate-versions - Often caused by dependencies and thus not possible to fix.
 eval = """
 set CLIPPY_DISABLE_DOCS_LINKS=1\
 && cargo-clippy clippy --verbose -- \
@@ -92,7 +94,6 @@ set CLIPPY_DISABLE_DOCS_LINKS=1\
     -F clippy::unimplemented \
     -F clippy::use-debug \
     -F clippy::wrong-pub-self-convention \
-    -F clippy::multiple-crate-versions \
     -D rust-2018-idioms \
     -D unused-attributes \
     -D unused-qualifications \
@@ -100,6 +101,7 @@ set CLIPPY_DISABLE_DOCS_LINKS=1\
     -A missing-docs \
     -A clippy::implicit-return \
     -A clippy::wildcard-enum-match-arm \
+    -A clippy::multiple-crate-versions \
 && cargo-fmt -- --check \
 && fc r README.md \
 && cargo test --verbose --all-features\
